@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parameter Space</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Styles & Script -->
+    <link rel="stylesheet" href="/src/styles/main.css">
+    <script type="module" src="/src/viewer/index.ts"></script>
+</head>
+<body>
+    <header class="main-header">
+        <div class="container">
+            <h1 class="app-title">
+                <span class="title-part-1">PARAMETER</span>
+                <span class="title-part-2">SPACE</span>
+            </h1>
+            <p class="app-tagline">A clean interface for IFC model visualization</p>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <section class="viewer-section">
+            <div class="container">
+                <div id="viewer-container">
+                    <!-- The 3D viewer will be initialized here by /src/viewer/index.ts -->
+                </div>
+            </div>
+        </section>
+
+        <section class="capabilities-section">
+            <div class="container">
+                <h2 class="section-title">Capabilities</h2>
+                <div class="capabilities-grid">
+                    <div class="capability-card">
+                        <h3 class="capability-title">Import IFC</h3>
+                        <p class="capability-desc">Load IFC files directly from your device. All processing happens locally in your browser — no data is uploaded to external servers.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h3 class="capability-title">Fragment Export</h3>
+                        <p class="capability-desc">Optimize performance by exporting models into reusable fragments, enabling faster subsequent load times.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h3 class="capability-title">Element Selection</h3>
+                        <p class="capability-desc">Select, isolate, and inspect specific model elements with high precision.</p>
+                    </div>
+                    <div class="capability-card">
+                        <h3 class="capability-title">Properties View</h3>
+                        <p class="capability-desc">Review detailed element properties in a structured tree view for in-depth analysis.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="main-footer">
+        <div class="container">
+            <p class="copyright">© 2025 Parameter Space IFC Viewer</p>
+            <div class="footer-links">
+                <a href="https://github.com/OcarCampos/ifcViewer" target="_blank" rel="noopener noreferrer">Source Code</a>
+                <span class="separator">•</span>
+                <a href="https://github.com/OcarCampos/ifcViewer/issues" target="_blank" rel="noopener noreferrer">Report Issue</a>
+                <span class="separator">•</span>
+                <a href="mailto:ocar.campos@attitude.cl" rel="noopener noreferrer">Contact</a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
