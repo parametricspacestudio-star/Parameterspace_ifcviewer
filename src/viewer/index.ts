@@ -27,14 +27,14 @@ async function importFragments() {
   input.accept = ".frag";
   const reader = new FileReader();
 
-  reader.addEventListener("load", () => {
+  reader.addEventListener("load", async () => {
     const binary = reader.result;
     if (!(binary instanceof ArrayBuffer)) {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
     const fragmentsManager = components.get(OBC.FragmentsManager);
-    fragmentsManager.load(fragmentBinary);
+    await fragmentsManager.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
@@ -51,7 +51,7 @@ async function importFragments() {
 function disposeFragments() {
   const fragmentsManager = components.get(OBC.FragmentsManager);
   for (const [, group] of fragmentsManager.groups) {
-    fragmentsManager.disposeGroup(group);
+    fragmentsManager.dispose();
   }
   fragmentModel = undefined;
 }
@@ -87,13 +87,12 @@ async function showProperties() {
   const highlighter = components.get(OBCF.Highlighter);
   const selection = highlighter.selection.select;
   const indexer = components.get(OBC.IfcRelationsIndexer);
-  if (Object.keys(selection).length === 0) {
+  if (selection.size === 0) {
     return;
   }
 
-  for (const fragmentID in selection) {
-    const expressIDs = selection[fragmentID];
-    for (const id of expressIDs) {
+  for (const [fragmentID, expressIDs] of (selection as any)) {
+    for (const id of (expressIDs as any)) {
       const psets = indexer.getEntityRelations(
         fragmentModel,
         id,
@@ -111,25 +110,16 @@ async function showProperties() {
 
 function toggleVisibility() {
   const highlighter = components.get(OBCF.Highlighter);
-  const fragments = components.get(OBC.FragmentsManager);
+  const hider = components.get(OBC.Hider);
   const selection = highlighter.selection.select;
-  if (Object.keys(selection).length === 0) {
+  if (selection.size === 0) {
     return;
   }
 
-  for (const fragmentID in selection) {
-    const fragment = fragments.list.get(fragmentID);
-    const expressIDs = selection[fragmentID];
-    for (const id of expressIDs) {
-      if (!fragment) {
-        continue;
-      }
-      const isHidden = fragment.hiddenItems.has(id);
-      if (isHidden) {
-        fragment.setVisibility(true, [id]);
-      } else {
-        fragment.setVisibility(false, [id]);
-      }
+  for (const [fragmentID, expressIDs] of (selection as any)) {
+    for (const id of (expressIDs as any)) {
+      const isVisible = (hider as any).get ? (hider as any).get(fragmentID, id) : true;
+      hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
 }
@@ -143,7 +133,7 @@ function isolateSelection() {
 
 function showAll() {
   const hider = components.get(OBC.Hider);
-  hider.set(true);
+  (hider as any).showAll ? (hider as any).showAll() : hider.set(true);
 }
 
 function classifier() {
@@ -192,19 +182,11 @@ world.camera.controls.setLookAt(12, 6, 8, 0, 0, -10);
 world.camera.updateAspect();
 world.scene.setup();
 
-// Set white background for canvas
 world.scene.three.background = new THREE.Color(0xffffff);
 
-// Create grid - the create method only accepts world as argument
 const grids = components.get(OBC.Grids);
-const grid = grids.create(world);
+grids.create(world);
 
-// To customize the grid appearance, you need to access its properties differently
-// For the light theme, you might want to change the grid material
-// Check the grid's properties to see what's available:
-// console.log(grid);
-
-// Add lighting for white background
 const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
 world.scene.three.add(ambientLight);
 
@@ -252,7 +234,9 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [propsTable, updatePropsTable] = CUI.tables.elementProperties({
+  const tables = CUI.tables as any;
+  const tableFn = tables.propertiesTable || tables.elementProperties;
+  const [propsTable, updatePropsTable] = tableFn({
     components,
     fragmentIdMap: {},
   });
@@ -303,11 +287,13 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [worldsTable] = CUI.tables.worldsConfiguration({ components });
+  const [worldsTable] = (CUI.tables as any).worldsConfiguration ? (CUI.tables as any).worldsConfiguration({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
-    worldsTable.queryString = input.value;
+    if (worldsTable && 'queryString' in worldsTable) {
+        worldsTable.queryString = input.value;
+    }
   };
 
   return BUI.html`
@@ -336,11 +322,9 @@ const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
         <bim-button tooltip-title="Export" icon="tabler:package-export" @click=${exportFragments}></bim-button>
         <bim-button tooltip-title="Dispose" icon="tabler:trash" @click=${disposeFragments}></bim-button>
       </bim-toolbar-section>
-      <bim-toolbar-section label="Selection">
-        <bim-button tooltip-title="Visibility" icon="mdi:eye" @click=${toggleVisibility}></bim-button>
-        <bim-button tooltip-title="Isolate" icon="mdi:filter" @click=${isolateSelection}></bim-button>
-        <bim-button tooltip-title="Show all" icon="tabler:eye-filled" @click=${showAll}></bim-button>
-      </bim-toolbar-section>
+      <bim-button tooltip-title="Visibility" icon="mdi:eye" @click=${toggleVisibility}></bim-button>
+      <bim-button tooltip-title="Isolate" icon="mdi:filter" @click=${isolateSelection}></bim-button>
+      <bim-button tooltip-title="Show all" icon="tabler:eye-filled" @click=${showAll}></bim-button>
       <bim-toolbar-section label="Properties">
         <bim-button tooltip-title="Show" icon="clarity:list-line" @click=${showProperties}></bim-button>
       </bim-toolbar-section>
