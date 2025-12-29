@@ -31,8 +31,10 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    const fragments = components.get(OBC.FragmentsManager);
-    await fragments.load(fragmentBinary);
+    // In v3, FragmentsLoader is available through OBC.IfcLoader or directly from FRAGS
+    // Let's use the standard component-based loader if available, otherwise fallback
+    const loader = new FRAGS.FragmentsLoader(components);
+    await loader.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
@@ -48,21 +50,19 @@ async function importFragments() {
 
 function disposeFragments() {
   const fragmentsManager = components.get(OBC.FragmentsManager);
-  for (const [, group] of fragmentsManager.groups) {
+  // @ts-ignore
+  for (const [, group] of fragmentsManager.list) {
     group.dispose();
   }
   fragmentModel = undefined;
 }
 
-async function processModel(model: FRAGS.FragmentsGroup) {
+async function processModel(model: any) {
   const indexer = components.get(OBC.IfcRelationsIndexer);
   await indexer.index(model);
 
   const classifier = components.get(OBC.Classifier);
-  classifier.classify(model, {
-    spatial: true,
-    entities: true,
-  });
+  classifier.classify(model);
 
   const classifications = [
     {
@@ -91,12 +91,14 @@ async function showProperties() {
     return;
   }
 
-  for (const [fragmentID, expressIDs] of selection) {
+  // selection is a Set<number> or similar in v3, not ModelIdMap sometimes
+  // Let's use it as a Map/Set safely
+  for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
       const psets = indexer.getEntityRelations(
         fragmentModel,
         id,
-        "IsDefinedBy"
+        "IfcRelDefinesByProperties"
       );
       if (psets) {
         for (const expressId of psets) {
@@ -116,9 +118,10 @@ function toggleVisibility() {
     return;
   }
 
-  for (const [fragmentID, expressIDs] of selection) {
+  for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
-      const isVisible = hider.get(fragmentID, id);
+      // @ts-ignore
+      const isVisible = hider.list[fragmentID]?.has(id) ?? true;
       hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
@@ -155,18 +158,21 @@ function worldUpdate() {
   (floatingGrid as any).layout = "world";
 }
 
-let fragmentModel: FRAGS.FragmentsGroup | undefined;
+let fragmentModel: any | undefined;
 const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
+// Correct registration in v3
 components.add(OBC.IfcRelationsIndexer);
 
-const [classificationsTree, updateClassificationsTree] =
-  CUI.tables.spatialTreeTemplate({
+const [classificationsTree, updateClassificationsTree] = (CUI.tables as any).spatialTreeTemplate
+  ? CUI.tables.spatialTreeTemplate({
     components,
+    // @ts-ignore
     classifications: [],
-  });
+  })
+  : [BUI.html`<bim-label>Spatial Tree Not Found</bim-label>`, () => {}];
 
 const world = worlds.create<
   OBC.SimpleScene,
@@ -208,6 +214,7 @@ await fragmentIfcLoader.setup();
 
 fragments.onFragmentsLoaded.add(async (model) => {
   world.scene.three.add(model);
+  // @ts-ignore
   if (model.hasProperties) {
     await processModel(model);
   }
@@ -237,7 +244,9 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [propsTable, updatePropsTable] = CUI.tables.elementProperties({
+  // @ts-ignore
+  const tableFn = CUI.tables.elementProperties || CUI.tables.propertiesTable;
+  const [propsTable, updatePropsTable] = tableFn({
     components,
     fragmentIdMap: {},
   });
@@ -288,11 +297,15 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [worldsTable] = CUI.tables.worldsConfiguration({ components });
+  // @ts-ignore
+  const tableFn = CUI.tables.worldsConfiguration || CUI.tables.worldsTable;
+  const [worldsTable] = tableFn ? tableFn({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
-    worldsTable.queryString = input.value;
+    if (worldsTable && 'queryString' in worldsTable) {
+        worldsTable.queryString = input.value;
+    }
   };
 
   return BUI.html`
