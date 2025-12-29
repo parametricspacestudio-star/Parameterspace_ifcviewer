@@ -98,7 +98,10 @@ async function showProperties() {
   const selection = highlighter.selection.select;
   // @ts-ignore
   const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
-  if (selection.size === 0 || !indexer) {
+  
+  // selection.size is correct, but TS is confused by the union type from highlighter.selection
+  // We explicitly check if it's empty or if indexer is missing
+  if ((selection as any).size === 0 || !indexer) {
     return;
   }
 
@@ -124,7 +127,7 @@ function toggleVisibility() {
   const highlighter = components.get(OBCF.Highlighter);
   const hider = components.get(OBC.Hider);
   const selection = highlighter.selection.select;
-  if (selection.size === 0) {
+  if ((selection as any).size === 0) {
     return;
   }
 
