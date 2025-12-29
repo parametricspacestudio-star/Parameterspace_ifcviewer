@@ -1,3 +1,4 @@
+
 {
   "name": "ifc-browser",
   "version": "1.0.0",
@@ -36,3 +37,4 @@
     "web-ifc": "0.0.72"
   }
 }
+
