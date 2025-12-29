@@ -31,8 +31,8 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    const loader = new FRAGS.FragmentsLoader(components);
-    await loader.load(fragmentBinary);
+    const fragments = components.get(OBC.FragmentsManager);
+    await fragments.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
