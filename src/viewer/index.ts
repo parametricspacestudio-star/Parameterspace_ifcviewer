@@ -31,14 +31,10 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    const fragments = components.get(OBC.FragmentsManager);
-    // @ts-ignore
-    if (fragments.load) {
-        // @ts-ignore
-        await fragments.load(fragmentBinary);
-    } else {
-        console.warn("Loader not found, attempting fallback");
-    }
+    // In v3, FragmentsLoader is available through OBC.IfcLoader or directly from FRAGS
+    // Let's use the standard component-based loader if available, otherwise fallback
+    const loader = new FRAGS.FragmentsLoader(components);
+    await loader.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
@@ -89,8 +85,8 @@ async function processModel(model: any) {
     },
   ];
 
-  if (updateClassificationsTree) {
-    updateClassificationsTree({ classifications });
+  if (typeof updateClassificationsTree === 'function') {
+    (updateClassificationsTree as any)({ classifications });
   }
 }
 
@@ -193,7 +189,7 @@ const classificationsTreeResult = (CUI.tables as any).spatialTreeTemplate
 
 const [classificationsTree, updateClassificationsTree] = Array.isArray(classificationsTreeResult) 
   ? classificationsTreeResult 
-  : [classificationsTreeResult, () => {}];
+  : [classificationsTreeResult, null];
 
 const world = worlds.create<
   OBC.SimpleScene,
@@ -274,7 +270,7 @@ const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
 
   const [propsTable, updatePropsTable] = Array.isArray(tableResult)
     ? tableResult
-    : [tableResult, () => {}];
+    : [tableResult, null];
 
   const highlighter = components.get(OBCF.Highlighter);
 
@@ -283,12 +279,16 @@ const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
       return;
     }
     (floatingGrid as any).layout = "secondary";
-    updatePropsTable({ fragmentIdMap });
+    if (typeof updatePropsTable === 'function') {
+        (updatePropsTable as any)({ fragmentIdMap });
+    }
     propsTable.expanded = false;
   });
 
   highlighter.events.select.onClear.add(() => {
-    updatePropsTable({ fragmentIdMap: {} });
+    if (typeof updatePropsTable === 'function') {
+        (updatePropsTable as any)({ fragmentIdMap: {} });
+    }
     if (!floatingGrid) {
       return;
     }
