@@ -1,19 +1,16 @@
-
 import * as BUI from "@thatopen/ui";
 import * as OBC from "@thatopen/components";
 import * as OBCF from "@thatopen/components-front";
 import * as CUI from "@thatopen/ui-obc";
-import { FragmentsGroup } from "@thatopen/fragments";
+import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 
 async function exportFragments() {
-  const fragmentsManager = components.get(OBC.FragmentsManager);
   if (!fragmentModel) {
     return;
   }
-
-  const fragmentBinary = fragmentsManager.export(fragmentModel);
-  const blob = new Blob([fragmentBinary as any]);
+  const fragmentBinary = fragmentModel.export();
+  const blob = new Blob([fragmentBinary]);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -34,8 +31,8 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    const fragmentsManager = components.get(OBC.FragmentsManager);
-    await fragmentsManager.load(fragmentBinary);
+    const loader = new FRAGS.FragmentsLoader(components);
+    await loader.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
@@ -52,18 +49,20 @@ async function importFragments() {
 function disposeFragments() {
   const fragmentsManager = components.get(OBC.FragmentsManager);
   for (const [, group] of fragmentsManager.groups) {
-    fragmentsManager.dispose();
+    group.dispose();
   }
   fragmentModel = undefined;
 }
 
-async function processModel(model: FragmentsGroup) {
+async function processModel(model: FRAGS.FragmentsGroup) {
   const indexer = components.get(OBC.IfcRelationsIndexer);
-  await indexer.process(model);
+  await indexer.index(model);
 
   const classifier = components.get(OBC.Classifier);
-  await classifier.bySpatialStructure(model);
-  classifier.byEntity(model);
+  classifier.classify(model, {
+    spatial: true,
+    entities: true,
+  });
 
   const classifications = [
     {
@@ -71,7 +70,7 @@ async function processModel(model: FragmentsGroup) {
       label: "Entities",
     },
     {
-      system: "spatialStructures",
+      system: "spatial",
       label: "Spatial Structures",
     },
   ];
@@ -92,8 +91,8 @@ async function showProperties() {
     return;
   }
 
-  for (const [fragmentID, expressIDs] of (selection as any)) {
-    for (const id of (expressIDs as any)) {
+  for (const [fragmentID, expressIDs] of selection) {
+    for (const id of expressIDs) {
       const psets = indexer.getEntityRelations(
         fragmentModel,
         id,
@@ -117,9 +116,9 @@ function toggleVisibility() {
     return;
   }
 
-  for (const [fragmentID, expressIDs] of (selection as any)) {
-    for (const id of (expressIDs as any)) {
-      const isVisible = (hider as any).get ? (hider as any).get(fragmentID, id) : true;
+  for (const [fragmentID, expressIDs] of selection) {
+    for (const id of expressIDs) {
+      const isVisible = hider.get(fragmentID, id);
       hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
@@ -134,17 +133,18 @@ function isolateSelection() {
 
 function showAll() {
   const hider = components.get(OBC.Hider);
-  (hider as any).showAll ? (hider as any).showAll() : hider.set(true);
+  hider.set(true);
 }
 
 function classifier() {
   if (!floatingGrid) {
     return;
   }
-  if (floatingGrid.layout !== "classifier") {
-    floatingGrid.layout = "classifier";
+  const currentLayout = (floatingGrid as any).layout;
+  if (currentLayout !== "classifier") {
+    (floatingGrid as any).layout = "classifier";
   } else {
-    floatingGrid.layout = "main";
+    (floatingGrid as any).layout = "main";
   }
 }
 
@@ -152,16 +152,18 @@ function worldUpdate() {
   if (!floatingGrid) {
     return;
   }
-  floatingGrid.layout = "world";
+  (floatingGrid as any).layout = "world";
 }
 
-let fragmentModel: FragmentsGroup | undefined;
+let fragmentModel: FRAGS.FragmentsGroup | undefined;
 const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
+components.add(OBC.IfcRelationsIndexer);
+
 const [classificationsTree, updateClassificationsTree] =
-  CUI.tables.classificationTree({
+  CUI.tables.spatialTreeTemplate({
     components,
     classifications: [],
   });
@@ -235,9 +237,7 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
-  const tables = CUI.tables as any;
-  const tableFn = tables.propertiesTable || tables.elementProperties;
-  const [propsTable, updatePropsTable] = tableFn({
+  const [propsTable, updatePropsTable] = CUI.tables.elementProperties({
     components,
     fragmentIdMap: {},
   });
@@ -248,7 +248,7 @@ const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
     if (!floatingGrid) {
       return;
     }
-    floatingGrid.layout = "secondary";
+    (floatingGrid as any).layout = "secondary";
     updatePropsTable({ fragmentIdMap });
     propsTable.expanded = false;
   });
@@ -258,7 +258,7 @@ const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
     if (!floatingGrid) {
       return;
     }
-    floatingGrid.layout = "main";
+    (floatingGrid as any).layout = "main";
   });
 
   const search = (e: Event) => {
@@ -288,13 +288,11 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [worldsTable] = (CUI.tables as any).worldsConfiguration ? (CUI.tables as any).worldsConfiguration({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
+  const [worldsTable] = CUI.tables.worldsConfiguration({ components });
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
-    if (worldsTable && 'queryString' in worldsTable) {
-        worldsTable.queryString = input.value;
-    }
+    worldsTable.queryString = input.value;
   };
 
   return BUI.html`
@@ -384,6 +382,6 @@ floatingGrid.layouts = {
     },
   },
 };
-floatingGrid.layout = "main";
+(floatingGrid as any).layout = "main";
 
 container.appendChild(floatingGrid);
