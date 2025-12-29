@@ -72,7 +72,11 @@ async function processModel(model: any) {
   }
 
   const classifier = components.get(OBC.Classifier);
-  classifier.classify(model);
+  // @ts-ignore
+  if (classifier.classify) {
+    // @ts-ignore
+    classifier.classify(model);
+  }
 
   const classifications = [
     {
@@ -99,8 +103,6 @@ async function showProperties() {
   // @ts-ignore
   const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
   
-  // selection.size is correct, but TS is confused by the union type from highlighter.selection
-  // We explicitly check if it's empty or if indexer is missing
   if ((selection as any).size === 0 || !indexer) {
     return;
   }
