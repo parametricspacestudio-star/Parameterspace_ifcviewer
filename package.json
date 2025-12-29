@@ -1,16 +1,15 @@
-
 {
   "name": "ifc-browser",
   "version": "1.0.0",
-  "description": "IFC 3D Model Viewer using HTMX",
+  "description": "IFC 3D Model Viewer using That Open Components",
   "private": true,
   "type": "module",
-  "main": "index.html",
+
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "build": "vite build"
   },
+
   "keywords": [
     "ifc",
     "viewer",
@@ -19,22 +18,27 @@
     "fragments",
     "thatopen"
   ],
+
   "license": "ISC",
-  "devDependencies": {
-    "@types/node": "^22.10.6",
-    "@types/three": "0.175.0",
-    "typescript": "^5.7.3",
-    "vite": "^6.4.1"
-  },
+
   "dependencies": {
     "@thatopen/components": "3.2.0",
     "@thatopen/components-front": "3.2.0",
     "@thatopen/fragments": "3.2.0",
     "@thatopen/ui": "3.2.0",
     "@thatopen/ui-obc": "3.2.0",
-    "jszip": "^3.10.1",
+
     "three": "0.175.0",
-    "web-ifc": "0.0.72"
+    "web-ifc": "0.0.72",
+    "jszip": "^3.10.1",
+
+    "serve": "^14.2.5"
+  },
+
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "@types/three": "0.175.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.1"
   }
 }
-

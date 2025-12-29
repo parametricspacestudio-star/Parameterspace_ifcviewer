@@ -1,10 +1,14 @@
 modules = ["nodejs-20", "web"]
+
 [agent]
 expertMode = true
 
 [nix]
 channel = "stable-25_05"
 
+# ------------------------------
+# WORKSPACE (Run button)
+# ------------------------------
 [workflows]
 runButton = "Project"
 
@@ -29,16 +33,25 @@ task = "shell.exec"
 args = "npm run dev -- --host 0.0.0.0 --port 5000"
 waitForPort = 5000
 
+# ------------------------------
+# PORTS
+# ------------------------------
 [[ports]]
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 5001
-externalPort = 3001
-
+# ------------------------------
+# DEPLOYMENT (AUTOSCALE)
+# ------------------------------
 [deployment]
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
-run = ["npx servant serving ./dist --port 5000 --host 0.0.0.0 --cache-control \"no-cache\""]
+run = [
+  "node",
+  "./node_modules/serve/build/main.js",
+  "-s",
+  "dist",
+  "-l",
+  "5000"
+]
 publicDir = "dist"
