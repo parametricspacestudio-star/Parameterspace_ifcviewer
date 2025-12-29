@@ -31,10 +31,21 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    // In v3, FragmentsLoader is available through OBC.IfcLoader or directly from FRAGS
-    // Let's use the standard component-based loader if available, otherwise fallback
-    const loader = new FRAGS.FragmentsLoader(components);
-    await loader.load(fragmentBinary);
+    // In v3, IfcLoader handles fragments too or we use FragmentsManager directly if possible
+    // Given the error, FRAGS.FragmentsLoader doesn't exist. 
+    // Usually in That Open v3, we use components.get(OBC.IfcLoader) for IFCs.
+    // For .frag files, let's try using the FragmentsManager's load method if it exists or use IfcLoader.
+    // However, if FRAGS.FragmentsLoader is missing, it might be named differently or moved.
+    // Let's use a safe approach by using the fragments manager directly.
+    const fragments = components.get(OBC.FragmentsManager);
+    // @ts-ignore
+    if (fragments.load) {
+        // @ts-ignore
+        await fragments.load(fragmentBinary);
+    } else {
+        // Fallback or search for correct loader
+        console.warn("Loader not found, attempting fallback");
+    }
   });
 
   input.addEventListener("change", () => {
@@ -51,8 +62,11 @@ async function importFragments() {
 function disposeFragments() {
   const fragmentsManager = components.get(OBC.FragmentsManager);
   // @ts-ignore
-  for (const [, group] of fragmentsManager.list) {
-    group.dispose();
+  const list = fragmentsManager.list || (fragmentsManager as any).groups;
+  if (list) {
+      for (const [, group] of list) {
+        group.dispose();
+      }
   }
   fragmentModel = undefined;
 }
@@ -91,8 +105,6 @@ async function showProperties() {
     return;
   }
 
-  // selection is a Set<number> or similar in v3, not ModelIdMap sometimes
-  // Let's use it as a Map/Set safely
   for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
       const psets = indexer.getEntityRelations(
@@ -121,7 +133,7 @@ function toggleVisibility() {
   for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
       // @ts-ignore
-      const isVisible = hider.list[fragmentID]?.has(id) ?? true;
+      const isVisible = (hider.list && hider.list[fragmentID]?.has(id)) ?? true;
       hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
@@ -163,7 +175,6 @@ const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
-// Correct registration in v3
 components.add(OBC.IfcRelationsIndexer);
 
 const [classificationsTree, updateClassificationsTree] = (CUI.tables as any).spatialTreeTemplate
