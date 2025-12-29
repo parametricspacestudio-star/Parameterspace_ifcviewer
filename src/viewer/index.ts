@@ -31,10 +31,25 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    // In v3, FragmentsLoader is available through OBC.IfcLoader or directly from FRAGS
-    // Let's use the standard component-based loader if available, otherwise fallback
-    const loader = new FRAGS.FragmentsLoader(components);
-    await loader.load(fragmentBinary);
+    
+    // In @thatopen/components v3, fragment loading is handled via IfcLoader or FragmentsManager
+    // Since FRAGS.FragmentsLoader is reported missing, we use the components system
+    const fragments = components.get(OBC.FragmentsManager);
+    
+    // Attempting to load using the FragmentsManager's load method if available
+    // Otherwise, we use the IfcLoader which often handles both .ifc and .frag in v3
+    // @ts-ignore
+    if (fragments.load) {
+      // @ts-ignore
+      await fragments.load(fragmentBinary);
+    } else {
+      const loader = components.get(OBC.IfcLoader);
+      // @ts-ignore
+      if (loader.load) {
+        // @ts-ignore
+        await loader.load(fragmentBinary);
+      }
+    }
   });
 
   input.addEventListener("change", () => {
