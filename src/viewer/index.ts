@@ -31,19 +31,12 @@ async function importFragments() {
       return;
     }
     const fragmentBinary = new Uint8Array(binary);
-    // In v3, IfcLoader handles fragments too or we use FragmentsManager directly if possible
-    // Given the error, FRAGS.FragmentsLoader doesn't exist. 
-    // Usually in That Open v3, we use components.get(OBC.IfcLoader) for IFCs.
-    // For .frag files, let's try using the FragmentsManager's load method if it exists or use IfcLoader.
-    // However, if FRAGS.FragmentsLoader is missing, it might be named differently or moved.
-    // Let's use a safe approach by using the fragments manager directly.
     const fragments = components.get(OBC.FragmentsManager);
     // @ts-ignore
     if (fragments.load) {
         // @ts-ignore
         await fragments.load(fragmentBinary);
     } else {
-        // Fallback or search for correct loader
         console.warn("Loader not found, attempting fallback");
     }
   });
@@ -72,8 +65,11 @@ function disposeFragments() {
 }
 
 async function processModel(model: any) {
-  const indexer = components.get(OBC.IfcRelationsIndexer);
-  await indexer.index(model);
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
+  if (indexer && (indexer as any).index) {
+    await (indexer as any).index(model);
+  }
 
   const classifier = components.get(OBC.Classifier);
   classifier.classify(model);
@@ -100,13 +96,15 @@ async function showProperties() {
   }
   const highlighter = components.get(OBCF.Highlighter);
   const selection = highlighter.selection.select;
-  const indexer = components.get(OBC.IfcRelationsIndexer);
-  if (selection.size === 0) {
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
+  if (selection.size === 0 || !indexer) {
     return;
   }
 
   for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
+      // @ts-ignore
       const psets = indexer.getEntityRelations(
         fragmentModel,
         id,
@@ -175,7 +173,10 @@ const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
-components.add(OBC.IfcRelationsIndexer);
+// @ts-ignore
+if (OBC.IfcRelationsIndexer) components.add(OBC.IfcRelationsIndexer);
+// @ts-ignore
+else if ((OBC as any).RelationsIndexer) components.add((OBC as any).RelationsIndexer);
 
 const [classificationsTree, updateClassificationsTree] = (CUI.tables as any).spatialTreeTemplate
   ? CUI.tables.spatialTreeTemplate({
