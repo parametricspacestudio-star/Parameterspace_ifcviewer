@@ -40,5 +40,5 @@ externalPort = 3001
 [deployment]
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
-run = ["npm", "run", "preview"]
+run = ["npx servant serving ./dist --port 5000 --host 0.0.0.0 --cache-control \"no-cache\""]
 publicDir = "dist"
