@@ -183,13 +183,17 @@ if (OBC.IfcRelationsIndexer) components.add(OBC.IfcRelationsIndexer);
 // @ts-ignore
 else if ((OBC as any).RelationsIndexer) components.add((OBC as any).RelationsIndexer);
 
-const [classificationsTree, updateClassificationsTree] = (CUI.tables as any).spatialTreeTemplate
+const classificationsTreeResult = (CUI.tables as any).spatialTreeTemplate
   ? CUI.tables.spatialTreeTemplate({
     components,
     // @ts-ignore
     classifications: [],
   })
   : [BUI.html`<bim-label>Spatial Tree Not Found</bim-label>`, () => {}];
+
+const [classificationsTree, updateClassificationsTree] = Array.isArray(classificationsTreeResult) 
+  ? classificationsTreeResult 
+  : [classificationsTreeResult, () => {}];
 
 const world = worlds.create<
   OBC.SimpleScene,
@@ -263,10 +267,14 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
   // @ts-ignore
   const tableFn = CUI.tables.elementProperties || CUI.tables.propertiesTable;
-  const [propsTable, updatePropsTable] = tableFn({
+  const tableResult = tableFn({
     components,
     fragmentIdMap: {},
   });
+
+  const [propsTable, updatePropsTable] = Array.isArray(tableResult)
+    ? tableResult
+    : [tableResult, () => {}];
 
   const highlighter = components.get(OBCF.Highlighter);
 
@@ -316,7 +324,11 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
   // @ts-ignore
   const tableFn = CUI.tables.worldsConfiguration || CUI.tables.worldsTable;
-  const [worldsTable] = tableFn ? tableFn({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
+  const worldsTableResult = tableFn ? tableFn({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
+  
+  const [worldsTable] = Array.isArray(worldsTableResult)
+    ? worldsTableResult
+    : [worldsTableResult];
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
