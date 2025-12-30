@@ -5,22 +5,20 @@ import * as CUI from "@thatopen/ui-obc";
 import * as THREE from "three";
 
 /**
- * BIM 3D Viewer using That Open v3.x - Core functionality
- * Updated for v3.x API compatibility
- * Note: Classification tables API has changed in v3.x
+ * BIM 3D Viewer using That Open v3.x
+ * Fixed IFC loading and fragment import
  */
 
 async function exportFragments() {
   if (!fragmentModel) return;
   try {
-    const fragmentBinary = fragmentModel.export();
-    const blob = new Blob([fragmentBinary]);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `model_fragments.frag`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const fragsBuffer = await fragmentModel.getBuffer(false);
+    const file = new File([fragsBuffer], "model.frag");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(file);
+    link.download = file.name;
+    link.click();
+    URL.revokeObjectURL(link.href);
   } catch (e) {
     console.error("Export error:", e);
   }
@@ -34,19 +32,27 @@ async function importFragments() {
 
   reader.addEventListener("load", async () => {
     const binary = reader.result;
-    if (!(binary instanceof ArrayBuffer)) return;
-    const fragmentBinary = new Uint8Array(binary);
-    const fragmentsManager = components.get(OBC.FragmentsManager);
+    if (!(binary instanceof ArrayBuffer)) {
+      console.error("Invalid file format");
+      return;
+    }
+    
     try {
-      await (fragmentsManager as any).load(fragmentBinary);
+      const fragmentsManager = components.get(OBC.FragmentsManager);
+      const fragmentBinary = new Uint8Array(binary);
+      await fragmentsManager.load(fragmentBinary);
+      console.log("Fragment loaded successfully");
     } catch (e) {
-      console.error("Import error:", e);
+      console.error("Fragment import error:", e);
     }
   });
 
   input.addEventListener("change", () => {
     const filesList = input.files;
-    if (!filesList) return;
+    if (!filesList) {
+      console.error("No file selected");
+      return;
+    }
     reader.readAsArrayBuffer(filesList[0]);
   });
 
@@ -56,29 +62,29 @@ async function importFragments() {
 function disposeFragments() {
   const fragmentsManager = components.get(OBC.FragmentsManager);
   try {
-    for (const [, group] of (fragmentsManager as any).groups) {
-      (fragmentsManager as any).disposeGroup(group);
+    for (const [, group] of fragmentsManager.groups) {
+      fragmentsManager.disposeGroup(group);
     }
+    fragmentModel = undefined;
+    console.log("Fragments disposed");
   } catch (e) {
     console.error("Dispose error:", e);
   }
-  fragmentModel = undefined;
 }
 
 async function processModel(model: any) {
   try {
-    // v3.x API - using available components
     const classifier = components.get(OBC.Classifier);
     if (classifier) {
       try {
         await (classifier as any).classifyBySpatialStructure(model);
       } catch (e) {
-        console.log("Spatial structure classification not available:", e);
+        console.log("Spatial structure classification:", e);
       }
       try {
         (classifier as any).classifyByEntity(model);
       } catch (e) {
-        console.log("Entity classification not available:", e);
+        console.log("Entity classification:", e);
       }
     }
   } catch (e) {
@@ -91,13 +97,16 @@ async function showProperties() {
   try {
     const highlighter = highlighterComponent;
     const selection = (highlighter.selection as any).select;
-    if (!selection || Object.keys(selection).length === 0) return;
+    if (!selection || Object.keys(selection).length === 0) {
+      console.log("No elements selected");
+      return;
+    }
 
     for (const fragmentID in selection) {
       const expressIDs = selection[fragmentID];
       for (const id of expressIDs) {
         const prop = await fragmentModel.getProperties(id);
-        console.log(prop);
+        console.log("Element properties:", prop);
       }
     }
   } catch (e) {
@@ -115,12 +124,12 @@ function toggleVisibility() {
     const fragmentsManager = components.get(OBC.FragmentsManager);
 
     for (const fragmentID in selection) {
-      const fragment = (fragmentsManager as any).groups.get(fragmentID);
+      const fragment = fragmentsManager.groups.get(fragmentID);
       const expressIDs = selection[fragmentID];
       for (const id of expressIDs) {
         if (!fragment) continue;
-        const isVisible = !(fragment as any).hiddenItems.has(id);
-        (fragment as any).setVisibility(!isVisible, [id]);
+        const isVisible = !fragment.hiddenItems.has(id);
+        fragment.setVisibility(!isVisible, [id]);
       }
     }
   } catch (e) {
@@ -196,18 +205,24 @@ world.scene.setup();
 const grids = components.get(OBC.Grids);
 grids.create(world);
 
+// Initialize FragmentsManager with worker
 const fragmentsManager = components.get(OBC.FragmentsManager);
-const fragmentIfcLoader = components.get(OBC.IfcLoader);
+const workerUrl = "https://thatopen.github.io/engine_fragment/resources/worker.mjs";
+await fragmentsManager.init(workerUrl);
 
-await fragmentIfcLoader.setup();
-
+// Setup fragment loading
 fragmentsManager.onFragmentsLoaded.add(async (model) => {
-  world.scene.three.add(model);
+  console.log("Fragments loaded:", model);
+  world.scene.three.add(model.object);
   if (model.hasProperties) {
     await processModel(model);
   }
   fragmentModel = model;
 });
+
+// Setup IFC loader
+const fragmentIfcLoader = components.get(OBC.IfcLoader);
+await fragmentIfcLoader.setup();
 
 const highlighterComponent = components.get(OBCF.Highlighter);
 highlighterComponent.setup({ world });
@@ -232,6 +247,7 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
+  // Use the CUI loadIfc button which handles file dialog automatically
   const [loadIfcBtn] = CUI.buttons.loadIfc({ components });
 
   return BUI.html`
