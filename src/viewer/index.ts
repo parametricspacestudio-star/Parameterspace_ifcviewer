@@ -9,6 +9,32 @@ import * as THREE from "three";
  * Fixed IFC loading and fragment import
  */
 
+async function loadIfc() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".ifc";
+  
+  input.addEventListener("change", async () => {
+    const filesList = input.files;
+    if (!filesList || filesList.length === 0) {
+      console.error("No file selected");
+      return;
+    }
+    
+    try {
+      const file = filesList[0];
+      const ifcLoader = components.get(OBC.IfcLoader);
+      console.log("Loading IFC file:", file.name);
+      const model = await ifcLoader.load(new File([file], file.name));
+      console.log("IFC loaded successfully:", model);
+    } catch (e) {
+      console.error("IFC loading error:", e);
+    }
+  });
+  
+  input.click();
+}
+
 async function exportFragments() {
   if (!fragmentModel) return;
   try {
@@ -28,42 +54,38 @@ async function importFragments() {
   const input = document.createElement("input");
   input.type = "file";
   input.accept = ".frag";
-  const reader = new FileReader();
-
-  reader.addEventListener("load", async () => {
-    const binary = reader.result;
-    if (!(binary instanceof ArrayBuffer)) {
-      console.error("Invalid file format");
+  
+  input.addEventListener("change", async () => {
+    const filesList = input.files;
+    if (!filesList || filesList.length === 0) {
+      console.error("No file selected");
       return;
     }
     
     try {
+      const file = filesList[0];
       const fragmentsManager = components.get(OBC.FragmentsManager);
-      const fragmentBinary = new Uint8Array(binary);
-      await fragmentsManager.load(fragmentBinary);
-      console.log("Fragment loaded successfully");
+      console.log("Importing fragment file:", file.name);
+      const buffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(buffer);
+      const result = await fragmentsManager.load(uint8Array);
+      console.log("Fragment imported successfully:", result);
     } catch (e) {
       console.error("Fragment import error:", e);
     }
-  });
-
-  input.addEventListener("change", () => {
-    const filesList = input.files;
-    if (!filesList) {
-      console.error("No file selected");
-      return;
-    }
-    reader.readAsArrayBuffer(filesList[0]);
   });
 
   input.click();
 }
 
 function disposeFragments() {
-  const fragmentsManager = components.get(OBC.FragmentsManager);
   try {
-    for (const [, group] of fragmentsManager.groups) {
-      fragmentsManager.disposeGroup(group);
+    const fragmentsManager = components.get(OBC.FragmentsManager);
+    const allGroups = fragmentsManager.groups;
+    if (allGroups) {
+      allGroups.forEach((group) => {
+        group.dispose(false);
+      });
     }
     fragmentModel = undefined;
     console.log("Fragments disposed");
@@ -247,13 +269,10 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
-  // Use the CUI loadIfc button which handles file dialog automatically
-  const [loadIfcBtn] = CUI.buttons.loadIfc({ components });
-
   return BUI.html`
     <bim-toolbar style="justify-self: center;">
       <bim-toolbar-section label="Import">
-        ${loadIfcBtn}
+        <bim-button tooltip-title="Load IFC" icon="mdi:file-document" @click=${loadIfc}></bim-button>
       </bim-toolbar-section>
       <bim-toolbar-section label="Fragments">
         <bim-button tooltip-title="Import" icon="mdi:cube" @click=${importFragments}></bim-button>
