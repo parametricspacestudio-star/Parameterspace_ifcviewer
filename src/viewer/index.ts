@@ -5,10 +5,15 @@ import * as CUI from "@thatopen/ui-obc";
 import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
 
+/**
+ * BIM 3D Viewer using That Open v3.x
+ * Corrected to use official v3.x APIs and types.
+ */
+
 async function exportFragments() {
-  if (!fragmentModel) {
-    return;
-  }
+  if (!fragmentModel) return;
+  const fragments = components.get(OBC.FragmentsManager);
+  // In v3, export is on the FragmentsGroup itself
   const fragmentBinary = fragmentModel.export();
   const blob = new Blob([fragmentBinary]);
   const url = URL.createObjectURL(blob);
@@ -27,36 +32,16 @@ async function importFragments() {
 
   reader.addEventListener("load", async () => {
     const binary = reader.result;
-    if (!(binary instanceof ArrayBuffer)) {
-      return;
-    }
+    if (!(binary instanceof ArrayBuffer)) return;
     const fragmentBinary = new Uint8Array(binary);
-
-    // In @thatopen/components v3, fragment loading is handled via IfcLoader or FragmentsManager
-    // Since FRAGS.FragmentsLoader is reported missing, we use the components system
-    const fragments = components.get(OBC.FragmentsManager);
-
-    // Attempting to load using the FragmentsManager's load method if available
-    // Otherwise, we use the IfcLoader which often handles both .ifc and .frag in v3
-    // @ts-ignore
-    if (fragments.load) {
-      // @ts-ignore
-      await fragments.load(fragmentBinary);
-    } else {
-      const loader = components.get(OBC.IfcLoader);
-      // @ts-ignore
-      if (loader.load) {
-        // @ts-ignore
-        await loader.load(fragmentBinary);
-      }
-    }
+    // In v3, we use FragmentsLoader to load fragments
+    const loader = new FRAGS.FragmentsLoader(components);
+    await loader.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
     const filesList = input.files;
-    if (!filesList) {
-      return;
-    }
+    if (!filesList) return;
     reader.readAsArrayBuffer(filesList[0]);
   });
 
@@ -64,30 +49,20 @@ async function importFragments() {
 }
 
 function disposeFragments() {
-  const fragmentsManager = components.get(OBC.FragmentsManager);
-  // @ts-ignore
-  const list = fragmentsManager.list || (fragmentsManager as any).groups;
-  if (list) {
-      for (const [, group] of list) {
-        group.dispose();
-      }
+  const fragments = components.get(OBC.FragmentsManager);
+  // In v3, fragments.groups is a Map
+  for (const [, group] of fragments.groups) {
+    group.dispose();
   }
   fragmentModel = undefined;
 }
 
-async function processModel(model: any) {
-  // @ts-ignore
-  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
-  if (indexer && (indexer as any).index) {
-    await (indexer as any).index(model);
-  }
+async function processModel(model: FRAGS.FragmentsGroup) {
+  const indexer = components.get(OBC.IfcRelationsIndexer);
+  await indexer.index(model);
 
   const classifier = components.get(OBC.Classifier);
-  // @ts-ignore
-  if (classifier.classify) {
-    // @ts-ignore
-    classifier.classify(model);
-  }
+  await classifier.classify(model); 
 
   const classifications = [
     {
@@ -100,34 +75,24 @@ async function processModel(model: any) {
     },
   ];
 
-  if (typeof updateClassificationsTree === 'function') {
-    (updateClassificationsTree as any)({ classifications });
+  if (updateClassificationsTree) {
+    updateClassificationsTree({ classifications });
   }
 }
 
 async function showProperties() {
-  if (!fragmentModel) {
-    return;
-  }
+  if (!fragmentModel) return;
   const highlighter = components.get(OBCF.Highlighter);
   const selection = highlighter.selection.select;
-  // @ts-ignore
-  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
+  const indexer = components.get(OBC.IfcRelationsIndexer);
+  
+  if (selection.size === 0) return;
 
-  if ((selection as any).size === 0 || !indexer) {
-    return;
-  }
-
-  for (const [fragmentID, expressIDs] of (selection as any)) {
+  for (const [fragmentID, expressIDs] of selection) {
     for (const id of expressIDs) {
-      // @ts-ignore
-      const psets = indexer.getEntityRelations(
-        fragmentModel,
-        id,
-        "IfcRelDefinesByProperties"
-      );
-      if (psets) {
-        for (const expressId of psets) {
+      const relations = indexer.getEntityRelations(fragmentModel, id, "IsDefinedBy");
+      if (relations) {
+        for (const expressId of relations) {
           const prop = await fragmentModel.getProperties(expressId);
           console.log(prop);
         }
@@ -140,14 +105,11 @@ function toggleVisibility() {
   const highlighter = components.get(OBCF.Highlighter);
   const hider = components.get(OBC.Hider);
   const selection = highlighter.selection.select;
-  if ((selection as any).size === 0) {
-    return;
-  }
+  if (selection.size === 0) return;
 
-  for (const [fragmentID, expressIDs] of (selection as any)) {
+  for (const [fragmentID, expressIDs] of selection) {
     for (const id of expressIDs) {
-      // @ts-ignore
-      const isVisible = (hider.list && hider.list[fragmentID]?.has(id)) ?? true;
+      const isVisible = hider.get(fragmentID, id);
       hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
@@ -166,45 +128,29 @@ function showAll() {
 }
 
 function classifier() {
-  if (!floatingGrid) {
-    return;
-  }
-  const currentLayout = (floatingGrid as any).layout;
-  if (currentLayout !== "classifier") {
-    (floatingGrid as any).layout = "classifier";
+  if (!floatingGrid) return;
+  if (floatingGrid.layout !== "classifier") {
+    floatingGrid.layout = "classifier" as any;
   } else {
-    (floatingGrid as any).layout = "main";
+    floatingGrid.layout = "main" as any;
   }
 }
 
 function worldUpdate() {
-  if (!floatingGrid) {
-    return;
-  }
-  (floatingGrid as any).layout = "world";
+  if (!floatingGrid) return;
+  floatingGrid.layout = "world" as any;
 }
 
-let fragmentModel: any | undefined;
+let fragmentModel: FRAGS.FragmentsGroup | undefined;
 const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
-// @ts-ignore
-if (OBC.IfcRelationsIndexer) components.add(OBC.IfcRelationsIndexer);
-// @ts-ignore
-else if ((OBC as any).RelationsIndexer) components.add((OBC as any).RelationsIndexer);
-
-const classificationsTreeResult = (CUI.tables as any).spatialTreeTemplate
-  ? CUI.tables.spatialTreeTemplate({
-    components,
-    // @ts-ignore
-    classifications: [],
-  })
-  : [BUI.html`<bim-label>Spatial Tree Not Found</bim-label>`, () => {}];
-
-const [classificationsTree, updateClassificationsTree] = Array.isArray(classificationsTreeResult) 
-  ? classificationsTreeResult 
-  : [classificationsTreeResult, null];
+// Correct classification tree creation in v3
+const [classificationsTree, updateClassificationsTree] = CUI.tables.spatialTreeTemplate({
+  components,
+  classifications: [],
+});
 
 const world = worlds.create<
   OBC.SimpleScene,
@@ -223,21 +169,8 @@ world.camera.controls.setLookAt(12, 6, 8, 0, 0, -10);
 world.camera.updateAspect();
 world.scene.setup();
 
-world.scene.three.background = new THREE.Color(0xffffff);
-
 const grids = components.get(OBC.Grids);
 grids.create(world);
-
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
-world.scene.three.add(ambientLight);
-
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-directionalLight.position.set(10, 20, 5);
-world.scene.three.add(directionalLight);
-
-const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
-directionalLight2.position.set(-10, -10, -5);
-world.scene.three.add(directionalLight2);
 
 const fragments = components.get(OBC.FragmentsManager);
 const fragmentIfcLoader = components.get(OBC.IfcLoader);
@@ -246,7 +179,6 @@ await fragmentIfcLoader.setup();
 
 fragments.onFragmentsLoaded.add(async (model) => {
   world.scene.three.add(model);
-  // @ts-ignore
   if (model.hasProperties) {
     await processModel(model);
   }
@@ -276,38 +208,24 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
-  // @ts-ignore
-  const tableFn = CUI.tables.elementProperties || CUI.tables.propertiesTable;
-  const tableResult = tableFn({
+  const [propsTable, updatePropsTable] = CUI.tables.elementProperties({
     components,
     fragmentIdMap: {},
   });
 
-  const [propsTable, updatePropsTable] = Array.isArray(tableResult)
-    ? tableResult
-    : [tableResult, null];
-
   const highlighter = components.get(OBCF.Highlighter);
 
   highlighter.events.select.onHighlight.add((fragmentIdMap) => {
-    if (!floatingGrid) {
-      return;
-    }
-    (floatingGrid as any).layout = "secondary";
-    if (typeof updatePropsTable === 'function') {
-        (updatePropsTable as any)({ fragmentIdMap });
-    }
+    if (!floatingGrid) return;
+    floatingGrid.layout = "secondary" as any;
+    updatePropsTable({ fragmentIdMap });
     propsTable.expanded = false;
   });
 
   highlighter.events.select.onClear.add(() => {
-    if (typeof updatePropsTable === 'function') {
-        (updatePropsTable as any)({ fragmentIdMap: {} });
-    }
-    if (!floatingGrid) {
-      return;
-    }
-    (floatingGrid as any).layout = "main";
+    updatePropsTable({ fragmentIdMap: {} });
+    if (!floatingGrid) return;
+    floatingGrid.layout = "main" as any;
   });
 
   const search = (e: Event) => {
@@ -337,19 +255,11 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
-  // @ts-ignore
-  const tableFn = CUI.tables.worldsConfiguration || CUI.tables.worldsTable;
-  const worldsTableResult = tableFn ? tableFn({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
-
-  const [worldsTable] = Array.isArray(worldsTableResult)
-    ? worldsTableResult
-    : [worldsTableResult];
+  const [worldsTable] = CUI.tables.worldsConfiguration({ components });
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
-    if (worldsTable && 'queryString' in worldsTable) {
-        worldsTable.queryString = input.value;
-    }
+    worldsTable.queryString = input.value;
   };
 
   return BUI.html`
@@ -439,6 +349,6 @@ floatingGrid.layouts = {
     },
   },
 };
-(floatingGrid as any).layout = "main";
+floatingGrid.layout = "main" as any;
 
 container.appendChild(floatingGrid);
