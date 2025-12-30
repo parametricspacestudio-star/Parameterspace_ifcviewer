@@ -25,8 +25,10 @@ async function loadIfc() {
       const file = filesList[0];
       const ifcLoader = components.get(OBC.IfcLoader);
       console.log("Loading IFC file:", file.name);
-      const model = await ifcLoader.load(file);
-      console.log("IFC loaded successfully:", model);
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = new Uint8Array(arrayBuffer);
+      await ifcLoader.load(buffer, false, file.name);
+      console.log("IFC loaded successfully:", file.name);
     } catch (e) {
       console.error("IFC loading error:", e);
     }
@@ -68,9 +70,8 @@ async function importFragments() {
       console.log("Importing fragment file:", file.name);
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
-      const result = await (fragmentsManager as any).load(uint8Array);
-      console.log("Fragment imported successfully:", result);
-      fragmentModel = result;
+      const models = await fragmentsManager.load(uint8Array);
+      console.log("Fragment imported successfully:", file.name, models);
     } catch (e) {
       console.error("Fragment import error:", e);
     }
@@ -235,19 +236,27 @@ const fragmentsManager = components.get(OBC.FragmentsManager);
 const workerUrl = "https://thatopen.github.io/engine_fragment/resources/worker.mjs";
 await fragmentsManager.init(workerUrl);
 
-// Setup fragment loading
-fragmentsManager.onFragmentsLoaded.add(async (model) => {
+// Setup fragment loading - when a model is added to the list
+fragmentsManager.list.onItemSet.add(async ({ value: model }) => {
   console.log("Fragments loaded:", model);
+  model.useCamera(world.camera.three);
   world.scene.three.add(model.object);
   if (model.hasProperties) {
     await processModel(model);
   }
   fragmentModel = model;
+  fragmentsManager.core.update(true);
 });
 
-// Setup IFC loader
+// Setup IFC loader with proper configuration
 const fragmentIfcLoader = components.get(OBC.IfcLoader);
-await fragmentIfcLoader.setup();
+await fragmentIfcLoader.setup({
+  autoSetWasm: false,
+  wasm: {
+    path: "https://unpkg.com/web-ifc@0.0.72/",
+    absolute: true,
+  },
+});
 
 const highlighterComponent = components.get(OBCF.Highlighter);
 highlighterComponent.setup({ world });
