@@ -41,6 +41,7 @@ externalPort = 80
 # DEPLOYMENT (AUTOSCALE)
 # ------------------------------
 [deployment]
-deploymentTarget = "autoscale"
-build = ["npm", "run", "build"]
+deploymentTarget = "static"
+build = ["npm"]
 run = ["node", "./dist/index.cjs"]
+publicDir = "dist"
