@@ -12,8 +12,6 @@ import * as THREE from "three";
 
 async function exportFragments() {
   if (!fragmentModel) return;
-  const fragments = components.get(OBC.FragmentsManager);
-  // In v3, export is on the FragmentsGroup itself
   const fragmentBinary = fragmentModel.export();
   const blob = new Blob([fragmentBinary]);
   const url = URL.createObjectURL(blob);
@@ -34,9 +32,9 @@ async function importFragments() {
     const binary = reader.result;
     if (!(binary instanceof ArrayBuffer)) return;
     const fragmentBinary = new Uint8Array(binary);
-    // In v3, we use FragmentsLoader to load fragments
-    const loader = new FRAGS.FragmentsLoader(components);
-    await loader.load(fragmentBinary);
+    const fragments = components.get(OBC.FragmentsManager);
+    // @ts-ignore
+    await fragments.load(fragmentBinary);
   });
 
   input.addEventListener("change", () => {
@@ -50,19 +48,37 @@ async function importFragments() {
 
 function disposeFragments() {
   const fragments = components.get(OBC.FragmentsManager);
-  // In v3, fragments.groups is a Map
-  for (const [, group] of fragments.groups) {
-    group.dispose();
+  // @ts-ignore
+  const groups = fragments.groups || (fragments as any).list;
+  for (const [, group] of groups) {
+    // @ts-ignore
+    if (fragments.disposeGroup) {
+      // @ts-ignore
+      fragments.disposeGroup(group);
+    } else {
+      group.dispose();
+    }
   }
   fragmentModel = undefined;
 }
 
-async function processModel(model: FRAGS.FragmentsGroup) {
-  const indexer = components.get(OBC.IfcRelationsIndexer);
-  await indexer.index(model);
+async function processModel(model: any) {
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).IfcRelations);
+  // @ts-ignore
+  await (indexer.index || indexer.process).call(indexer, model);
 
   const classifier = components.get(OBC.Classifier);
-  await classifier.classify(model); 
+  // @ts-ignore
+  if (classifier.classifyBySpatialStructure) {
+    // @ts-ignore
+    await classifier.classifyBySpatialStructure(model);
+    // @ts-ignore
+    classifier.classifyByEntity(model);
+  } else if ((classifier as any).classify) {
+    // @ts-ignore
+    await classifier.classify(model);
+  }
 
   const classifications = [
     {
@@ -70,7 +86,7 @@ async function processModel(model: FRAGS.FragmentsGroup) {
       label: "Entities",
     },
     {
-      system: "spatial",
+      system: "spatialStructures",
       label: "Spatial Structures",
     },
   ];
@@ -82,15 +98,17 @@ async function processModel(model: FRAGS.FragmentsGroup) {
 
 async function showProperties() {
   if (!fragmentModel) return;
-  const highlighter = components.get(OBCF.Highlighter);
+  const highlighter = highlighterComponent;
   const selection = highlighter.selection.select;
-  const indexer = components.get(OBC.IfcRelationsIndexer);
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).IfcRelations);
   
-  if (selection.size === 0) return;
+  if (!selection || (selection as any).size === 0) return;
 
-  for (const [fragmentID, expressIDs] of selection) {
+  for (const [fragmentID, expressIDs] of (selection as any)) {
     for (const id of expressIDs) {
-      const relations = indexer.getEntityRelations(fragmentModel, id, "IsDefinedBy");
+      // @ts-ignore
+      const relations = (indexer.getRelations || indexer.getEntityRelations).call(indexer, fragmentModel, id, "IsDefinedBy");
       if (relations) {
         for (const expressId of relations) {
           const prop = await fragmentModel.getProperties(expressId);
@@ -102,21 +120,33 @@ async function showProperties() {
 }
 
 function toggleVisibility() {
-  const highlighter = components.get(OBCF.Highlighter);
-  const hider = components.get(OBC.Hider);
+  const highlighter = highlighterComponent;
   const selection = highlighter.selection.select;
-  if (selection.size === 0) return;
+  if (!selection || (selection as any).size === 0) return;
 
-  for (const [fragmentID, expressIDs] of selection) {
+  const hider = components.get(OBC.Hider);
+  const fragments = components.get(OBC.FragmentsManager);
+  
+  for (const [fragmentID, expressIDs] of (selection as any)) {
+    // @ts-ignore
+    const fragment = (fragments.groups || (fragments as any).list).get(fragmentID);
     for (const id of expressIDs) {
-      const isVisible = hider.get(fragmentID, id);
-      hider.set(!isVisible, { [fragmentID]: new Set([id]) });
+      if (!fragment) continue;
+      // @ts-ignore
+      const isVisible = (fragment.hiddenItems ? !fragment.hiddenItems.has(id) : (hider as any).get(fragmentID, id));
+      // @ts-ignore
+      if (fragment.setVisibility) {
+        // @ts-ignore
+        fragment.setVisibility(!isVisible, [id]);
+      } else {
+        hider.set(!isVisible, { [fragmentID]: new Set([id]) });
+      }
     }
   }
 }
 
 function isolateSelection() {
-  const highlighter = components.get(OBCF.Highlighter);
+  const highlighter = highlighterComponent;
   const hider = components.get(OBC.Hider);
   const selection = highlighter.selection.select;
   hider.isolate(selection);
@@ -129,25 +159,31 @@ function showAll() {
 
 function classifier() {
   if (!floatingGrid) return;
+  // @ts-ignore
   if (floatingGrid.layout !== "classifier") {
-    floatingGrid.layout = "classifier" as any;
+    // @ts-ignore
+    floatingGrid.layout = "classifier";
   } else {
-    floatingGrid.layout = "main" as any;
+    // @ts-ignore
+    floatingGrid.layout = "main";
   }
 }
 
 function worldUpdate() {
   if (!floatingGrid) return;
-  floatingGrid.layout = "world" as any;
+  // @ts-ignore
+  floatingGrid.layout = "world";
 }
 
-let fragmentModel: FRAGS.FragmentsGroup | undefined;
+let fragmentModel: any | undefined;
 const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
-// Correct classification tree creation in v3
-const [classificationsTree, updateClassificationsTree] = CUI.tables.spatialTreeTemplate({
+// @ts-ignore
+const tables = components.get(CUI.Tables || (CUI as any).tables);
+// @ts-ignore
+const [classificationsTree, updateClassificationsTree] = (tables.createClassificationTree || (CUI as any).tables.classificationTree).call(tables || CUI.tables, {
   components,
   classifications: [],
 });
@@ -185,9 +221,9 @@ fragments.onFragmentsLoaded.add(async (model) => {
   fragmentModel = model;
 });
 
-const highlighter = components.get(OBCF.Highlighter);
-highlighter.setup({ world });
-highlighter.zoomToSelection = true;
+const highlighterComponent = components.get(OBCF.Highlighter);
+highlighterComponent.setup({ world });
+highlighterComponent.zoomToSelection = true;
 
 container.addEventListener("resize", () => {
   world.renderer?.resize();
@@ -208,16 +244,18 @@ const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
 });
 
 const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [propsTable, updatePropsTable] = CUI.tables.elementProperties({
+  // @ts-ignore
+  const [propsTable, updatePropsTable] = (tables.createPropertiesTable || (CUI as any).tables.elementProperties).call(tables || CUI.tables, {
     components,
     fragmentIdMap: {},
   });
 
-  const highlighter = components.get(OBCF.Highlighter);
+  const highlighter = highlighterComponent;
 
   highlighter.events.select.onHighlight.add((fragmentIdMap) => {
     if (!floatingGrid) return;
-    floatingGrid.layout = "secondary" as any;
+    // @ts-ignore
+    floatingGrid.layout = "secondary";
     updatePropsTable({ fragmentIdMap });
     propsTable.expanded = false;
   });
@@ -225,7 +263,8 @@ const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
   highlighter.events.select.onClear.add(() => {
     updatePropsTable({ fragmentIdMap: {} });
     if (!floatingGrid) return;
-    floatingGrid.layout = "main" as any;
+    // @ts-ignore
+    floatingGrid.layout = "main";
   });
 
   const search = (e: Event) => {
@@ -255,7 +294,8 @@ const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const worldPanel = BUI.Component.create<BUI.Panel>(() => {
-  const [worldsTable] = CUI.tables.worldsConfiguration({ components });
+  // @ts-ignore
+  const [worldsTable] = (tables.createWorldsTable || (CUI as any).tables.worldsConfiguration).call(tables || CUI.tables, { components });
 
   const search = (e: Event) => {
     const input = e.target as BUI.TextInput;
@@ -273,7 +313,10 @@ const worldPanel = BUI.Component.create<BUI.Panel>(() => {
 });
 
 const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
-  const [loadIfcBtn] = CUI.buttons.loadIfc({ components: components });
+  // @ts-ignore
+  const buttons = components.get(CUI.Buttons || (CUI as any).buttons);
+  // @ts-ignore
+  const loadIfcBtn = (buttons.createLoadIfc || (CUI as any).buttons.loadIfc).call(buttons || CUI.buttons, { components });
 
   loadIfcBtn.tooltipTitle = "Load IFC";
   loadIfcBtn.label = "";
@@ -349,6 +392,7 @@ floatingGrid.layouts = {
     },
   },
 };
-floatingGrid.layout = "main" as any;
+// @ts-ignore
+floatingGrid.layout = "main";
 
 container.appendChild(floatingGrid);
