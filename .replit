@@ -42,6 +42,6 @@ externalPort = 80
 # ------------------------------
 [deployment]
 deploymentTarget = "static"
-build = ["npm"]
+build = ["npm", "run", "build"]
 run = ["node", "./dist/index.cjs"]
 publicDir = "dist"
