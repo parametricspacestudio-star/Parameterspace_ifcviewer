@@ -25,7 +25,7 @@ async function loadIfc() {
       const file = filesList[0];
       const ifcLoader = components.get(OBC.IfcLoader);
       console.log("Loading IFC file:", file.name);
-      const model = await ifcLoader.load(new File([file], file.name));
+      const model = await ifcLoader.load(file);
       console.log("IFC loaded successfully:", model);
     } catch (e) {
       console.error("IFC loading error:", e);
@@ -68,8 +68,9 @@ async function importFragments() {
       console.log("Importing fragment file:", file.name);
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
-      const result = await fragmentsManager.load(uint8Array);
+      const result = await (fragmentsManager as any).load(uint8Array);
       console.log("Fragment imported successfully:", result);
+      fragmentModel = result;
     } catch (e) {
       console.error("Fragment import error:", e);
     }
@@ -81,9 +82,9 @@ async function importFragments() {
 function disposeFragments() {
   try {
     const fragmentsManager = components.get(OBC.FragmentsManager);
-    const allGroups = fragmentsManager.groups;
+    const allGroups = (fragmentsManager as any).groups;
     if (allGroups) {
-      allGroups.forEach((group) => {
+      allGroups.forEach((group: any) => {
         group.dispose(false);
       });
     }
@@ -164,7 +165,9 @@ function isolateSelection() {
     const highlighter = highlighterComponent;
     const hider = components.get(OBC.Hider);
     const selection = (highlighter.selection as any).select;
-    hider.isolate(selection);
+    if (selection && Object.keys(selection).length > 0) {
+      (hider as any).isolate(selection);
+    }
   } catch (e) {
     console.error("Isolate error:", e);
   }
