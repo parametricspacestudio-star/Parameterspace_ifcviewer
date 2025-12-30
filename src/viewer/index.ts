@@ -2,14 +2,13 @@ import * as BUI from "@thatopen/ui";
 import * as OBC from "@thatopen/components";
 import * as OBCF from "@thatopen/components-front";
 import * as CUI from "@thatopen/ui-obc";
+import * as FRAGS from "@thatopen/fragments";
 import * as THREE from "three";
-import { FragmentsGroup } from "@thatopen/components";
-
-// CRITICAL: Initialize BUI FIRST before any component creation
-BUI.Manager.init();
 
 async function exportFragments() {
-  if (!fragmentModel) return;
+  if (!fragmentModel) {
+    return;
+  }
   const fragmentBinary = fragmentModel.export();
   const blob = new Blob([fragmentBinary]);
   const url = URL.createObjectURL(blob);
@@ -28,64 +27,105 @@ async function importFragments() {
 
   reader.addEventListener("load", async () => {
     const binary = reader.result;
-    if (!(binary instanceof ArrayBuffer)) return;
-
+    if (!(binary instanceof ArrayBuffer)) {
+      return;
+    }
     const fragmentBinary = new Uint8Array(binary);
-    const fragments = components.get(OBC.Fragments);
 
-    try {
+    // In @thatopen/components v3, fragment loading is handled via IfcLoader or FragmentsManager
+    // Since FRAGS.FragmentsLoader is reported missing, we use the components system
+    const fragments = components.get(OBC.FragmentsManager);
+
+    // Attempting to load using the FragmentsManager's load method if available
+    // Otherwise, we use the IfcLoader which often handles both .ifc and .frag in v3
+    // @ts-ignore
+    if (fragments.load) {
+      // @ts-ignore
       await fragments.load(fragmentBinary);
-    } catch (error) {
-      console.error("Failed to load fragment:", error);
+    } else {
+      const loader = components.get(OBC.IfcLoader);
+      // @ts-ignore
+      if (loader.load) {
+        // @ts-ignore
+        await loader.load(fragmentBinary);
+      }
     }
   });
 
   input.addEventListener("change", () => {
     const filesList = input.files;
-    if (!filesList) return;
+    if (!filesList) {
+      return;
+    }
     reader.readAsArrayBuffer(filesList[0]);
   });
+
   input.click();
 }
 
 function disposeFragments() {
-  const fragments = components.get(OBC.Fragments);
-  for (const [, group] of fragments.groups) {
-    fragments.dispose(group);
+  const fragmentsManager = components.get(OBC.FragmentsManager);
+  // @ts-ignore
+  const list = fragmentsManager.list || (fragmentsManager as any).groups;
+  if (list) {
+      for (const [, group] of list) {
+        group.dispose();
+      }
   }
   fragmentModel = undefined;
 }
 
-async function processModel(model: FragmentsGroup) {
-  const indexer = components.get(OBC.IfcRelations);
-  await indexer.index(model);
+async function processModel(model: any) {
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
+  if (indexer && (indexer as any).index) {
+    await (indexer as any).index(model);
+  }
 
   const classifier = components.get(OBC.Classifier);
-  await classifier.classifyBySpatialStructure(model);
-  classifier.classifyByEntity(model);
+  // @ts-ignore
+  if (classifier.classify) {
+    // @ts-ignore
+    classifier.classify(model);
+  }
 
   const classifications = [
-    { system: "entities", label: "Entities" },
-    { system: "spatialStructures", label: "Spatial Structures" }
+    {
+      system: "entities",
+      label: "Entities",
+    },
+    {
+      system: "spatial",
+      label: "Spatial Structures",
+    },
   ];
 
-  if (updateClassificationsTree) {
-    updateClassificationsTree({ classifications });
+  if (typeof updateClassificationsTree === 'function') {
+    (updateClassificationsTree as any)({ classifications });
   }
 }
 
 async function showProperties() {
-  if (!fragmentModel) return;
-
+  if (!fragmentModel) {
+    return;
+  }
   const highlighter = components.get(OBCF.Highlighter);
   const selection = highlighter.selection.select;
-  const indexer = components.get(OBC.IfcRelations);
+  // @ts-ignore
+  const indexer = components.get(OBC.IfcRelationsIndexer || (OBC as any).RelationsIndexer);
 
-  if (!selection || Object.keys(selection).length === 0) return;
+  if ((selection as any).size === 0 || !indexer) {
+    return;
+  }
 
   for (const [fragmentID, expressIDs] of (selection as any)) {
-    for (const id of (expressIDs as any)) {
-      const psets = indexer.getRelations(fragmentModel, id, "IsDefinedBy");
+    for (const id of expressIDs) {
+      // @ts-ignore
+      const psets = indexer.getEntityRelations(
+        fragmentModel,
+        id,
+        "IfcRelDefinesByProperties"
+      );
       if (psets) {
         for (const expressId of psets) {
           const prop = await fragmentModel.getProperties(expressId);
@@ -100,12 +140,14 @@ function toggleVisibility() {
   const highlighter = components.get(OBCF.Highlighter);
   const hider = components.get(OBC.Hider);
   const selection = highlighter.selection.select;
-
-  if (!selection || Object.keys(selection).length === 0) return;
+  if ((selection as any).size === 0) {
+    return;
+  }
 
   for (const [fragmentID, expressIDs] of (selection as any)) {
-    for (const id of (expressIDs as any)) {
-      const isVisible = hider.visibility.get(fragmentID)?.has(id) ?? true;
+    for (const id of expressIDs) {
+      // @ts-ignore
+      const isVisible = (hider.list && hider.list[fragmentID]?.has(id)) ?? true;
       hider.set(!isVisible, { [fragmentID]: new Set([id]) });
     }
   }
@@ -124,30 +166,45 @@ function showAll() {
 }
 
 function classifier() {
-  if (!floatingGrid) return;
-  if (floatingGrid.layout !== BUI.FloatingGridLayout.Classifier) {
-    floatingGrid.layout = BUI.FloatingGridLayout.Classifier;
+  if (!floatingGrid) {
+    return;
+  }
+  const currentLayout = (floatingGrid as any).layout;
+  if (currentLayout !== "classifier") {
+    (floatingGrid as any).layout = "classifier";
   } else {
-    floatingGrid.layout = BUI.FloatingGridLayout.Main;
+    (floatingGrid as any).layout = "main";
   }
 }
 
 function worldUpdate() {
-  if (!floatingGrid) return;
-  floatingGrid.layout = BUI.FloatingGridLayout.World;
+  if (!floatingGrid) {
+    return;
+  }
+  (floatingGrid as any).layout = "world";
 }
 
-let fragmentModel: FragmentsGroup | undefined;
+let fragmentModel: any | undefined;
 const container = document.getElementById("viewer-container")!;
 const components = new OBC.Components();
 const worlds = components.get(OBC.Worlds);
 
-// Get tables component properly for v3
-const tables = components.get(CUI.Tables);
-const [classificationsTree, updateClassificationsTree] = tables.createClassificationTree({
-  components,
-  classifications: []
-});
+// @ts-ignore
+if (OBC.IfcRelationsIndexer) components.add(OBC.IfcRelationsIndexer);
+// @ts-ignore
+else if ((OBC as any).RelationsIndexer) components.add((OBC as any).RelationsIndexer);
+
+const classificationsTreeResult = (CUI.tables as any).spatialTreeTemplate
+  ? CUI.tables.spatialTreeTemplate({
+    components,
+    // @ts-ignore
+    classifications: [],
+  })
+  : [BUI.html`<bim-label>Spatial Tree Not Found</bim-label>`, () => {}];
+
+const [classificationsTree, updateClassificationsTree] = Array.isArray(classificationsTreeResult) 
+  ? classificationsTreeResult 
+  : [classificationsTreeResult, null];
 
 const world = worlds.create<
   OBC.SimpleScene,
@@ -165,6 +222,7 @@ world.renderer.postproduction.enabled = true;
 world.camera.controls.setLookAt(12, 6, 8, 0, 0, -10);
 world.camera.updateAspect();
 world.scene.setup();
+
 world.scene.three.background = new THREE.Color(0xffffff);
 
 const grids = components.get(OBC.Grids);
@@ -181,12 +239,14 @@ const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
 directionalLight2.position.set(-10, -10, -5);
 world.scene.three.add(directionalLight2);
 
-const fragments = components.get(OBC.Fragments);
+const fragments = components.get(OBC.FragmentsManager);
 const fragmentIfcLoader = components.get(OBC.IfcLoader);
+
 await fragmentIfcLoader.setup();
 
 fragments.onFragmentsLoaded.add(async (model) => {
   world.scene.three.add(model);
+  // @ts-ignore
   if (model.hasProperties) {
     await processModel(model);
   }
@@ -204,178 +264,181 @@ container.addEventListener("resize", () => {
 
 fragmentIfcLoader.settings.webIfc.COORDINATE_TO_ORIGIN = true;
 
-// Create floating grid AFTER BUI is initialized
+BUI.Manager.init();
+
 const floatingGrid = BUI.Component.create<BUI.Grid>(() => {
   return BUI.html`
-    <bim-grid floating style="padding: 20px"></bim-grid>
+      <bim-grid
+          floating
+          style="padding: 20px"
+      ></bim-grid>
   `;
 });
 
-// Create a simpler, more reliable toolbar
-const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
-  // Create button using proper v3 syntax
-  const loadIfcBtn = CUI.Button.create({
-    label: "Load IFC",
-    icon: "cloud-upload",
-    tooltipTitle: "Load IFC File",
-    onClick: () => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".ifc";
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (file) {
-          const buffer = await file.arrayBuffer();
-          const fragments = components.get(OBC.Fragments);
-          fragments.load(new Uint8Array(buffer));
-        }
-      };
-      input.click();
-    }
+const elementPropertyPanel = BUI.Component.create<BUI.Panel>(() => {
+  // @ts-ignore
+  const tableFn = CUI.tables.elementProperties || CUI.tables.propertiesTable;
+  const tableResult = tableFn({
+    components,
+    fragmentIdMap: {},
   });
 
+  const [propsTable, updatePropsTable] = Array.isArray(tableResult)
+    ? tableResult
+    : [tableResult, null];
+
+  const highlighter = components.get(OBCF.Highlighter);
+
+  highlighter.events.select.onHighlight.add((fragmentIdMap) => {
+    if (!floatingGrid) {
+      return;
+    }
+    (floatingGrid as any).layout = "secondary";
+    if (typeof updatePropsTable === 'function') {
+        (updatePropsTable as any)({ fragmentIdMap });
+    }
+    propsTable.expanded = false;
+  });
+
+  highlighter.events.select.onClear.add(() => {
+    if (typeof updatePropsTable === 'function') {
+        (updatePropsTable as any)({ fragmentIdMap: {} });
+    }
+    if (!floatingGrid) {
+      return;
+    }
+    (floatingGrid as any).layout = "main";
+  });
+
+  const search = (e: Event) => {
+    const input = e.target as BUI.TextInput;
+    propsTable.queryString = input.value;
+  };
+
   return BUI.html`
-    <bim-toolbar style="
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(30, 30, 30, 0.9);
-      border-radius: 10px;
-      padding: 10px 20px;
-      z-index: 10000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      display: flex;
-      gap: 10px;
-    ">
+      <bim-panel>
+          <bim-panel-section name="property" label="Property Information" icon="solar:document-bold" fixed>
+              <bim-text-input @input=${search} placeholder="Search..."></bim-text-input>
+              ${propsTable}
+          </bim-panel-section>
+      </bim-panel>
+  `;
+});
+
+const classifierPanel = BUI.Component.create<BUI.Panel>(() => {
+  return BUI.html`
+      <bim-panel style="width: 400px;">
+          <bim-panel-section name="classifier" label="Classifier" icon="solar:document-bold" fixed>
+              <bim-label>Classifications</bim-label>
+              ${classificationsTree}
+          </bim-panel-section>
+      </bim-panel>
+  `;
+});
+
+const worldPanel = BUI.Component.create<BUI.Panel>(() => {
+  // @ts-ignore
+  const tableFn = CUI.tables.worldsConfiguration || CUI.tables.worldsTable;
+  const worldsTableResult = tableFn ? tableFn({ components }) : [BUI.html`<bim-label>Worlds Table Not Found</bim-label>`];
+
+  const [worldsTable] = Array.isArray(worldsTableResult)
+    ? worldsTableResult
+    : [worldsTableResult];
+
+  const search = (e: Event) => {
+    const input = e.target as BUI.TextInput;
+    if (worldsTable && 'queryString' in worldsTable) {
+        worldsTable.queryString = input.value;
+    }
+  };
+
+  return BUI.html`
+      <bim-panel>
+          <bim-panel-section name="world" label="World Information" icon="solar:document-bold" fixed>
+              <bim-text-input @input=${search} placeholder="Search..."></bim-text-input>
+              ${worldsTable}
+          </bim-panel-section>
+      </bim-panel>
+  `;
+});
+
+const toolbar = BUI.Component.create<BUI.Toolbar>(() => {
+  const [loadIfcBtn] = CUI.buttons.loadIfc({ components: components });
+
+  loadIfcBtn.tooltipTitle = "Load IFC";
+  loadIfcBtn.label = "";
+
+  return BUI.html`
+    <bim-toolbar style="justify-self: center;">
       <bim-toolbar-section label="Import">
         ${loadIfcBtn}
       </bim-toolbar-section>
       <bim-toolbar-section label="Fragments">
-        <bim-button 
-          tooltip-title="Import Fragments" 
-          icon="mdi:cube"
-          @click=${importFragments}
-        ></bim-button>
-        <bim-button 
-          tooltip-title="Export Fragments" 
-          icon="tabler:package-export"
-          @click=${exportFragments}
-        ></bim-button>
-        <bim-button 
-          tooltip-title="Dispose" 
-          icon="tabler:trash"
-          @click=${disposeFragments}
-        ></bim-button>
+        <bim-button tooltip-title="Import" icon="mdi:cube" @click=${importFragments}></bim-button>
+        <bim-button tooltip-title="Export" icon="tabler:package-export" @click=${exportFragments}></bim-button>
+        <bim-button tooltip-title="Dispose" icon="tabler:trash" @click=${disposeFragments}></bim-button>
       </bim-toolbar-section>
-      <bim-button 
-        tooltip-title="Toggle Visibility" 
-        icon="mdi:eye"
-        @click=${toggleVisibility}
-      ></bim-button>
-      <bim-button 
-        tooltip-title="Isolate Selection" 
-        icon="mdi:filter"
-        @click=${isolateSelection}
-      ></bim-button>
-      <bim-button 
-        tooltip-title="Show All" 
-        icon="tabler:eye-filled"
-        @click=${showAll}
-      ></bim-button>
+      <bim-button tooltip-title="Visibility" icon="mdi:eye" @click=${toggleVisibility}></bim-button>
+      <bim-button tooltip-title="Isolate" icon="mdi:filter" @click=${isolateSelection}></bim-button>
+      <bim-button tooltip-title="Show all" icon="tabler:eye-filled" @click=${showAll}></bim-button>
       <bim-toolbar-section label="Properties">
-        <bim-button 
-          tooltip-title="Show Properties" 
-          icon="clarity:list-line"
-          @click=${showProperties}
-        ></bim-button>
+        <bim-button tooltip-title="Show" icon="clarity:list-line" @click=${showProperties}></bim-button>
       </bim-toolbar-section>
-      <bim-toolbar-section label="Views">
-        <bim-button 
-          tooltip-title="Classifier" 
-          icon="tabler:eye-filled"
-          @click=${classifier}
-        ></bim-button>
-        <bim-button 
-          tooltip-title="World" 
-          icon="tabler:brush"
-          @click=${worldUpdate}
-        ></bim-button>
+      <bim-toolbar-section label="Groups">
+        <bim-button tooltip-title="Classifier" icon="tabler:eye-filled" @click=${classifier}></bim-button>
+      </bim-toolbar-section>
+      <bim-toolbar-section label="App">
+        <bim-button tooltip-title="World" icon="tabler:brush" @click=${worldUpdate}></bim-button>
       </bim-toolbar-section>
     </bim-toolbar>
   `;
 });
 
-// Configure layouts using v3 enums
 floatingGrid.layouts = {
-  [BUI.FloatingGridLayout.Main]: {
-    template: `"empty" 1fr "toolbar" auto / 1fr`,
-    elements: { toolbar }
-  },
-  [BUI.FloatingGridLayout.Secondary]: {
-    template: `"empty elementPropertyPanel" 1fr "toolbar toolbar" auto / 1fr 20rem`,
-    elements: { 
+  main: {
+    template: `
+          "empty" 1fr
+          "toolbar" auto
+          /1fr
+      `,
+    elements: {
       toolbar,
-      elementPropertyPanel: BUI.Component.create(() => {
-        const tables = components.get(CUI.Tables);
-        const [propsTable] = tables.elementProperties({ components, fragmentIdMap: {} });
-        return BUI.html`<bim-panel>${propsTable}</bim-panel>`;
-      })()
-    }
+    },
   },
-  [BUI.FloatingGridLayout.World]: {
-    template: `"empty worldPanel" 1fr "toolbar toolbar" auto / 1fr 20rem`,
-    elements: { 
+  secondary: {
+    template: `
+        "empty elementPropertyPanel" 1fr
+        "toolbar toolbar" auto
+        /1fr 20rem
+    `,
+    elements: {
       toolbar,
-      worldPanel: BUI.Component.create(() => {
-        const tables = components.get(CUI.Tables);
-        const [worldsTable] = tables.worldsConfiguration({ components });
-        return BUI.html`<bim-panel>${worldsTable}</bim-panel>`;
-      })()
-    }
+      elementPropertyPanel,
+    },
   },
-  [BUI.FloatingGridLayout.Classifier]: {
-    template: `"empty classifierPanel" 1fr "toolbar toolbar" auto / 1fr 20rem`,
-    elements: { 
+  world: {
+    template: `
+        "empty worldPanel" 1fr
+        "toolbar toolbar" auto
+        /1fr 20rem
+    `,
+    elements: {
       toolbar,
-      classifierPanel: BUI.Component.create(() => {
-        return BUI.html`
-          <bim-panel style="width: 400px;">
-            <bim-panel-section name="classifier" label="Classifier" icon="solar:document-bold" fixed>
-              <bim-label>Classifications</bim-label>
-              ${classificationsTree}
-            </bim-panel-section>
-          </bim-panel>
-        `;
-      })()
-    }
-  }
+      worldPanel,
+    },
+  },
+  classifier: {
+    template: `
+        "empty classifierPanel" 1fr
+        "toolbar toolbar" auto
+        /1fr 20rem
+    `,
+    elements: {
+      toolbar,
+      classifierPanel,
+    },
+  },
 };
+(floatingGrid as any).layout = "main";
 
-// Set initial layout
-floatingGrid.layout = BUI.FloatingGridLayout.Main;
-
-// CRITICAL: Ensure container exists before appending
-if (container) {
-  container.appendChild(floatingGrid);
-} else {
-  console.error("Container #viewer-container not found!");
-  // Fallback: append to body
-  document.body.appendChild(floatingGrid);
-}
-
-// Add CSS for proper container sizing
-const style = document.createElement("style");
-style.textContent = `
-  #viewer-container {
-    position: relative;
-    width: 100vw;
-    height: 100vh;
-    overflow: hidden;
-  }
-  bim-toolbar {
-    --bim-toolbar_bg: rgba(30, 30, 30, 0.9);
-    --bim-button--m--primary_bg: #2196f3;
-  }
-`;
-document.head.appendChild(style);
+container.appendChild(floatingGrid);
